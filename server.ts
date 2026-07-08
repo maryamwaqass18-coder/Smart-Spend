@@ -12,26 +12,39 @@ const PORT = 3000;
 app.use(express.json());
 
 // Initialize Gemini API (lazy initialized and guarded)
-const apiKey = process.env.GEMINI_API_KEY;
-const ai = new GoogleGenAI({
-  apiKey: apiKey || "MOCK_KEY", // Provide a fallback during startup checks if key is missing
-  httpOptions: {
-    headers: {
-      'User-Agent': 'aistudio-build',
+let aiClient: GoogleGenAI | null = null;
+
+function getGeminiClient(): GoogleGenAI {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      throw new Error("GEMINI_API_KEY environment variable is required");
     }
+    aiClient = new GoogleGenAI({
+      apiKey: key,
+      httpOptions: {
+        headers: {
+          'User-Agent': 'aistudio-build',
+        }
+      }
+    });
   }
-});
+  return aiClient;
+}
 
   // API endpoints
   app.post("/api/gemini/tips", async (req, res) => {
     try {
       const { budget, expenses } = req.body;
 
-      if (!apiKey) {
+      const key = process.env.GEMINI_API_KEY;
+      if (!key) {
         return res.status(400).json({
           error: "Please set your GEMINI_API_KEY secret in Settings > Secrets to receive personalized AI financial tips."
         });
       }
+
+      const ai = getGeminiClient();
 
       // Calculate summary statistics to supply high-quality context to Gemini
       const totalBudget = budget.overall;
@@ -133,13 +146,14 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
   // Serve Vite in development, static files in production
   async function setupServer() {
     if (process.env.NODE_ENV !== "production") {
-      const { createServer: createViteServer } = await import("vite");
+      const viteModule = "vite";
+      const { createServer: createViteServer } = await import(viteModule);
       const vite = await createViteServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
       app.use(vite.middlewares);
-    } else {
+    } else if (!process.env.VERCEL) {
       const distPath = path.join(process.cwd(), "dist");
       app.use(express.static(distPath));
       app.get("*", (req, res) => {
