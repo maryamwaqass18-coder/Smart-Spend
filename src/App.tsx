@@ -426,8 +426,20 @@ export default function App() {
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || "Failed to generate financial recommendations.");
+        let errorMessage = "Failed to generate financial recommendations.";
+        try {
+          const responseText = await response.text();
+          try {
+            const errorData = JSON.parse(responseText);
+            errorMessage = errorData.error || errorMessage;
+          } catch {
+            // Not a JSON response, use the plain text response if available (up to 200 chars to avoid massive HTML page output)
+            errorMessage = responseText ? (responseText.length > 200 ? responseText.substring(0, 200) + "..." : responseText) : errorMessage;
+          }
+        } catch (readErr) {
+          console.error("Error reading response body:", readErr);
+        }
+        throw new Error(errorMessage);
       }
 
       const data: FinancialHealthResponse = await response.json();
