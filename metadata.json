@@ -1,0 +1,6 @@
+{
+  "name": "SmartSpend",
+  "description": "A responsive personal finance application to set budgets, track spending, and receive AI-powered personalized financial advice.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

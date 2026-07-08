@@ -1,0 +1,54 @@
+{
+  "entities": {
+    "MonthlyBudget": {
+      "title": "Monthly Budget",
+      "description": "Master and category-wise budget limits",
+      "type": "object",
+      "properties": {
+        "overall": {
+          "type": "number",
+          "description": "Overall budget amount"
+        },
+        "categories": {
+          "type": "array",
+          "description": "Allocated amounts per category"
+        }
+      },
+      "required": ["overall", "categories"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "An individual expense transaction record",
+      "type": "object",
+      "properties": {
+        "amount": {
+          "type": "number",
+          "description": "The expense amount"
+        },
+        "category": {
+          "type": "string",
+          "description": "The expense category name"
+        },
+        "date": {
+          "type": "string",
+          "description": "The date of the expense (YYYY-MM-DD)"
+        },
+        "description": {
+          "type": "string",
+          "description": "A description of the expense"
+        }
+      },
+      "required": ["amount", "category", "date", "description"]
+    }
+  },
+  "firestore": {
+    "/budgets/current_budget": {
+      "schema": "MonthlyBudget",
+      "description": "Single document holding current master and category allocations"
+    },
+    "/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "Collection of all expenses recorded by the user"
+    }
+  }
+}
