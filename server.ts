@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { GoogleGenAI, Type } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -96,32 +96,32 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: Type.OBJECT,
+            type: "OBJECT",
             properties: {
               score: {
-                type: Type.INTEGER,
+                type: "INTEGER",
                 description: "The financial health score (0 to 100)"
               },
               assessment: {
-                type: Type.STRING,
+                type: "STRING",
                 description: "Honest and supportive assessment of their current spending habits."
               },
               tips: {
-                type: Type.ARRAY,
+                type: "ARRAY",
                 description: "Array of exactly 3 to 4 personalized actionable tips.",
                 items: {
-                  type: Type.OBJECT,
+                  type: "OBJECT",
                   properties: {
-                    title: { type: Type.STRING, description: "A catchy, short tip title." },
-                    advice: { type: Type.STRING, description: "Specific advice explaining what the user should do and why." },
-                    category: { type: Type.STRING, description: "The specific category this tip targets, if applicable (e.g., Food & Dining)." },
-                    urgency: { type: Type.STRING, description: "Urgency level of this tip: high, medium, or low." }
+                    title: { type: "STRING", description: "A catchy, short tip title." },
+                    advice: { type: "STRING", description: "Specific advice explaining what the user should do and why." },
+                    category: { type: "STRING", description: "The specific category this tip targets, if applicable (e.g., Food & Dining)." },
+                    urgency: { type: "STRING", description: "Urgency level of this tip: high, medium, or low." }
                   },
                   required: ["title", "advice", "urgency"]
                 }
               },
               encouragement: {
-                type: Type.STRING,
+                type: "STRING",
                 description: "A short, encouraging closing sentence."
               }
             },
@@ -161,16 +161,17 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
       });
     }
 
-    // Only listen if not running on Vercel
-    if (!process.env.VERCEL) {
-      app.listen(PORT, "0.0.0.0", () => {
-        console.log(`Server running on port ${PORT}`);
-      });
-    }
+    // Listen on the port if we are not on Vercel
+    app.listen(PORT, "0.0.0.0", () => {
+      console.log(`Server running on port ${PORT}`);
+    });
   }
 
-  setupServer().catch(err => {
-    console.error("Failed to setup server:", err);
-  });
+  // Only setup/listen if not running on Vercel
+  if (!process.env.VERCEL) {
+    setupServer().catch(err => {
+      console.error("Failed to setup server:", err);
+    });
+  }
 
   export default app;
