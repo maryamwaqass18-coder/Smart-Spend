@@ -163,6 +163,85 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
     }
   });
 
+  app.post("/api/gemini/chat", async (req, res) => {
+    try {
+      console.log("POST /api/gemini/chat called");
+      const { history, message, budget, expenses } = req.body;
+
+      if (!message) {
+        return res.status(400).json({ error: "Message is required." });
+      }
+
+      const key = process.env.GEMINI_API_KEY;
+      if (!key) {
+        return res.status(400).json({
+          error: "Please set your GEMINI_API_KEY secret in Settings > Secrets to use the AI Coach chat."
+        });
+      }
+
+      const ai = getGeminiClient();
+
+      let contextStr = "";
+      if (budget && expenses) {
+        const totalBudget = Number(budget.overall || 0);
+        const expensesList = Array.isArray(expenses) ? expenses : [];
+        const totalSpent = expensesList.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
+        const remaining = totalBudget - totalSpent;
+
+        const categorySpendMap: Record<string, number> = {};
+        expensesList.forEach((e: any) => {
+          if (e && e.category) {
+            categorySpendMap[e.category] = (categorySpendMap[e.category] || 0) + Number(e.amount || 0);
+          }
+        });
+
+        contextStr = `\n\nUser's Current Real-Time Financial Context:
+- Monthly Budget Target: $${totalBudget}
+- Total Spent So Far: $${totalSpent}
+- Remaining Balance: $${remaining}
+- Categorized Spending:
+${Object.entries(categorySpendMap).map(([cat, spent]) => `  * ${cat}: $${spent}`).join("\n")}`;
+      }
+
+      const systemInstruction = `You are the "SmartSpend AI Money Coach," an encouraging, highly professional, and supportive personal finance advisor.
+Your goal is to guide the user in making better spending decisions, finding smart ways to save money, and answering financial questions.
+
+Be specific and practical in your advice. Feel free to reference the user's current budget and expenses if provided.
+When asked about purchasing decisions (e.g., "Should I buy a new phone?"), help them weigh the pros and cons based on their remaining budget, and propose alternative strategies (like saving over 3 months, or delaying the purchase).
+Keep responses friendly, helpful, relatively concise (2-4 sentences per point, avoiding massive paragraphs), and well-structured with formatting or bullet points where appropriate.${contextStr}`;
+
+      const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
+        role: h.role === "user" ? "user" : "model",
+        parts: Array.isArray(h.parts) ? h.parts.map((p: any) => ({ text: p.text || "" })) : [{ text: String(h) }]
+      })) : [];
+
+      const contents = [
+        ...formattedHistory,
+        { role: "user", parts: [{ text: message }] }
+      ];
+
+      console.log(`Invoking Google GenAI API for chat. Message count in session: ${contents.length}`);
+      const response = await ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents,
+        config: {
+          systemInstruction,
+        }
+      });
+
+      console.log("Google GenAI chat response generated.");
+      const responseText = response.text;
+      if (!responseText) {
+        throw new Error("No response text received from Gemini API");
+      }
+
+      res.json({ text: responseText });
+    } catch (error: any) {
+      console.error("Error in AI Coach chat:", error);
+      res.status(500).json({ error: error.message || "Failed to process chat message." });
+    }
+  });
+
   // Serve Vite in development, static files in production
   async function setupServer() {
     if (process.env.NODE_ENV !== "production") {

@@ -30,7 +30,10 @@ import {
   RefreshCw,
   Award,
   Database,
-  Cloud
+  Cloud,
+  Send,
+  Bot,
+  MessageSquare
 } from "lucide-react";
 import { db, collection, doc, getDoc, setDoc, getDocs, deleteDoc } from "./lib/firebase";
 import { motion, AnimatePresence } from "motion/react";
@@ -242,6 +245,106 @@ export default function App() {
     }
     return () => clearInterval(interval);
   }, [isGeneratingTips]);
+
+  // AI Coach Chat States
+  const [chatHistory, setChatHistory] = useState<any[]>(() => {
+    const saved = localStorage.getItem("smartspend_chathistory");
+    return saved ? JSON.parse(saved) : [
+      {
+        id: "welcome",
+        role: "model",
+        text: "Hi there! I'm your SmartSpend AI Money Coach. Ask me anything about budgeting, saving, or whether you should make a particular purchase!",
+        timestamp: new Date().toISOString()
+      }
+    ];
+  });
+  const [chatInput, setChatInput] = useState<string>("");
+  const [isSendingChat, setIsSendingChat] = useState<boolean>(false);
+  const [chatError, setChatError] = useState<string>("");
+
+  useEffect(() => {
+    localStorage.setItem("smartspend_chathistory", JSON.stringify(chatHistory));
+  }, [chatHistory]);
+
+  // Auto-scroll chat to bottom
+  useEffect(() => {
+    const element = document.getElementById("chat-thread-container");
+    if (element) {
+      element.scrollTop = element.scrollHeight;
+    }
+  }, [chatHistory, isSendingChat, activeTab]);
+
+  const handleSendChatMessage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!chatInput.trim() || isSendingChat) return;
+
+    const userMsg = chatInput.trim();
+    setChatInput("");
+    setChatError("");
+
+    const newUserMessage = {
+      id: Math.random().toString(36).substring(7),
+      role: "user",
+      text: userMsg,
+      timestamp: new Date().toISOString()
+    };
+
+    const updatedHistory = [...chatHistory, newUserMessage];
+    setChatHistory(updatedHistory);
+    setIsSendingChat(true);
+
+    try {
+      const apiHistory = chatHistory.map(h => ({
+        role: h.role,
+        parts: [{ text: h.text }]
+      }));
+
+      const response = await fetch("/api/gemini/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          history: apiHistory,
+          message: userMsg,
+          budget,
+          expenses
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json();
+        throw new Error(errData.error || "Failed to get response from AI Coach.");
+      }
+
+      const data = await response.json();
+
+      setChatHistory(prev => [
+        ...prev,
+        {
+          id: Math.random().toString(36).substring(7),
+          role: "model",
+          text: data.text,
+          timestamp: new Date().toISOString()
+        }
+      ]);
+    } catch (err: any) {
+      console.error(err);
+      setChatError(err.message || "Something went wrong. Please check your connection or try again.");
+    } finally {
+      setIsSendingChat(false);
+    }
+  };
+
+  const handleClearChatHistory = () => {
+    setChatHistory([
+      {
+        id: "welcome",
+        role: "model",
+        text: "Hi there! I'm your SmartSpend AI Money Coach. Ask me anything about budgeting, saving, or whether you should make a particular purchase!",
+        timestamp: new Date().toISOString()
+      }
+    ]);
+    setChatError("");
+  };
 
   // Derived Statistics
   const totalSpent = useMemo(() => {
@@ -522,16 +625,7 @@ export default function App() {
             >
               Set Budget
             </button>
-            <button 
-              onClick={() => { setStarted(true); setActiveTab("ai-coach"); }}
-              className={`text-sm font-medium transition-colors ${started && activeTab === "ai-coach" ? "text-emerald-800 font-semibold text-emerald-700" : "text-gray-500 hover:text-emerald-800"}`}
-              id="nav-tips"
-            >
-              <span className="inline-flex items-center gap-1.5">
-                AI Coach
-                <span className="px-1.5 py-0.5 text-[10px] bg-amber-100 text-amber-800 font-bold rounded-full">New</span>
-              </span>
-            </button>
+
           </nav>
 
           {/* Call To Action Buttons */}
@@ -727,12 +821,12 @@ export default function App() {
                   </button>
                   <button
                     onClick={() => setActiveTab("ai-coach")}
-                    className={`inline-flex items-center gap-1 px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all ${activeTab === "ai-coach" ? "bg-emerald-750 text-white shadow-sm" : "text-gray-600 hover:text-slate-900 hover:bg-slate-200/40"}`}
-                    style={activeTab === "ai-coach" ? { backgroundColor: "#0e7e53" } : {}}
+                    className={`px-4 py-2 rounded-lg text-xs font-bold tracking-wide transition-all inline-flex items-center gap-1.5 ${activeTab === "ai-coach" ? "bg-white text-emerald-800 shadow-sm font-semibold" : "text-gray-600 hover:text-slate-900 hover:bg-slate-200/40"}`}
                   >
-                    <Sparkles className="w-3.5 h-3.5" />
-                    AI Money Coach
+                    <Sparkles className="w-3.5 h-3.5 text-amber-500 fill-amber-500" />
+                    AI Coach
                   </button>
+
                 </div>
               </div>
 
@@ -1027,24 +1121,24 @@ export default function App() {
                     </div>
 
                     {/* AI Coach Callout Widget */}
-                    <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 text-white p-6 md:p-8 rounded-3xl border border-emerald-900 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden">
+                    <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 text-white p-6 md:p-8 rounded-3xl border border-emerald-900 shadow-lg flex flex-col md:flex-row md:items-center justify-between gap-6 relative overflow-hidden mt-8">
                       <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-48 h-48 bg-emerald-700/10 rounded-full blur-2xl"></div>
                       <div className="absolute left-1/3 bottom-0 translate-y-12 w-32 h-32 bg-amber-500/10 rounded-full blur-xl"></div>
                       
                       <div className="space-y-2 max-w-xl">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-[10px] font-bold tracking-wider uppercase border border-amber-500/20">
                           <Sparkle className="w-3 h-3 fill-amber-300 text-amber-300" />
-                          Gemini 3.5 AI Financial Advisor
+                          Gemini AI Financial Coach Chat
                         </span>
                         <h2 className="text-2xl font-black tracking-tight font-display">Need helper strategies to beat overspending?</h2>
-                        <p className="text-sm text-emerald-100/90 leading-relaxed">
-                          Your custom budget settings and transactions list can be securely evaluated by server-side Gemini AI to formulate professional, personalized tips to optimize your monthly remaining balance.
+                        <p className="text-sm text-emerald-100/90 leading-relaxed font-sans">
+                          Ask your custom budget questions and get instant, tailored advice on purchase decisions and smart ways to spend!
                         </p>
                       </div>
 
                       <button
                         onClick={() => { setActiveTab("ai-coach"); }}
-                        className="px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#093c26] font-extrabold text-sm tracking-wide transition-all shadow-md active:scale-[0.98] self-start md:self-auto inline-flex items-center gap-2 flex-shrink-0"
+                        className="px-6 py-3.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-[#093c26] font-extrabold text-sm tracking-wide transition-all shadow-md active:scale-[0.98] self-start md:self-auto inline-flex items-center gap-2 flex-shrink-0 cursor-pointer font-sans"
                       >
                         <Sparkles className="w-4.5 h-4.5 fill-[#093c26]" />
                         Consult Coach
@@ -1450,229 +1544,197 @@ export default function App() {
                   </motion.div>
                 )}
 
-                {/* ================== TAB 4: AI COACH ================== */}
+                {/* ================== TAB 4: AI COACH CHAT ================== */}
                 {activeTab === "ai-coach" && (
                   <motion.div 
                     initial={{ opacity: 0, y: 10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    className="space-y-8"
+                    className="grid grid-cols-1 lg:grid-cols-12 gap-8"
                   >
-                    
-                    {/* Setup block */}
-                    <div className="bg-white p-6 md:p-8 rounded-2xl border border-slate-150 shadow-xs">
-                      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                        <div className="space-y-1">
-                          <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
-                            <Sparkles className="w-5.5 h-5.5 text-amber-500 fill-amber-500" />
-                            AI Personal Coach Advice
-                          </h2>
-                          <p className="text-sm text-gray-500 leading-relaxed">
-                            Evaluate your monthly budget parameters and track record to formulate tailored recommendations.
-                          </p>
-                        </div>
-
-                        <button
-                          onClick={handleGenerateTips}
-                          disabled={isGeneratingTips}
-                          className="px-6 py-3.5 rounded-xl bg-emerald-700 hover:bg-emerald-800 disabled:bg-emerald-700/60 text-white font-extrabold text-sm tracking-wide transition-all shadow-md active:scale-[0.98] inline-flex items-center gap-2 flex-shrink-0 cursor-pointer"
-                        >
-                          {isGeneratingTips ? (
-                            <>
-                              <RefreshCw className="w-4 h-4 animate-spin" />
-                              Analyzing Profile...
-                            </>
-                          ) : (
-                            <>
-                              <Sparkles className="w-4 h-4" />
-                              Generate Personalized Tips
-                            </>
-                          )}
-                        </button>
-                      </div>
-
-                      {/* Error Banner */}
-                      {tipsError && (
-                        <div className="mt-6 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
-                          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
-                          <div className="text-sm text-red-800 leading-relaxed font-medium">
-                            {tipsError}
+                    {/* Left Column: Context & Suggest Questions */}
+                    <div className="lg:col-span-4 space-y-6">
+                      
+                      {/* Coach Bio Card */}
+                      <div className="bg-gradient-to-br from-emerald-800 to-emerald-950 text-white p-6 rounded-3xl border border-emerald-900 shadow-lg relative overflow-hidden">
+                        <div className="absolute right-0 top-0 translate-x-12 -translate-y-12 w-32 h-32 bg-emerald-700/20 rounded-full blur-xl"></div>
+                        
+                        <div className="flex items-center gap-3 mb-4">
+                          <div className="w-10 h-10 rounded-2xl bg-amber-500 flex items-center justify-center text-[#093c26]">
+                            <Sparkles className="w-5.5 h-5.5 fill-[#093c26]" />
+                          </div>
+                          <div>
+                            <h3 className="font-bold text-base font-display text-white">AI Coach Gemini</h3>
+                            <span className="text-[10px] text-amber-300 font-bold tracking-wider uppercase">Personal Financial Advisor</span>
                           </div>
                         </div>
-                      )}
+
+                        <p className="text-xs text-emerald-100/90 leading-relaxed mb-4 font-sans">
+                          I can evaluate your real-time spending to help you make smart purchase decisions and find where you can save.
+                        </p>
+
+                        {/* Real-time sync badge */}
+                        <div className="pt-4 border-t border-emerald-750/60 flex items-center gap-2">
+                          <div className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></div>
+                          <span className="text-[10px] text-emerald-200 font-mono">
+                            Syncing with your current budget
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Quick decision-making prompts */}
+                      <div className="bg-white p-6 rounded-2xl border border-slate-150 shadow-xs space-y-4">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">
+                          Suggested Questions
+                        </h4>
+                        
+                        <div className="space-y-2">
+                          {[
+                            "Should I buy a new phone this month?",
+                            "How can I cut back on my food & dining expenses?",
+                            "Give me a structured weekly budget plan.",
+                            "What are 3 smart ways to save money based on my spending?"
+                          ].map((promptText, idx) => (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setChatInput(promptText);
+                              }}
+                              className="w-full text-left p-3 rounded-xl border border-slate-100 hover:border-emerald-500/30 hover:bg-emerald-50/20 text-xs text-slate-700 font-medium transition-all group flex items-start gap-2.5 cursor-pointer"
+                            >
+                              <ArrowRight className="w-3.5 h-3.5 text-emerald-600 mt-0.5 group-hover:translate-x-0.5 transition-transform flex-shrink-0" />
+                              <span className="font-sans">{promptText}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Reset Conversation Button */}
+                      <button
+                        onClick={handleClearChatHistory}
+                        className="w-full py-2.5 rounded-xl border border-slate-200 text-xs font-bold text-gray-500 hover:text-red-600 hover:border-red-200 hover:bg-red-50/20 transition-all cursor-pointer text-center block"
+                      >
+                        Reset Conversation History
+                      </button>
+
                     </div>
 
-                    {/* Loading Screen */}
-                    <AnimatePresence mode="wait">
-                      {isGeneratingTips && (
-                        <motion.div
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: 1 }}
-                          exit={{ opacity: 0 }}
-                          className="p-12 text-center bg-white rounded-3xl border border-slate-150 shadow-xs flex flex-col items-center justify-center space-y-6 min-h-[350px]"
-                        >
-                          <div className="relative">
-                            <div className="w-16 h-16 rounded-full border-4 border-emerald-150 border-t-emerald-700 animate-spin"></div>
-                            <Sparkles className="w-6 h-6 text-amber-500 absolute top-5 left-5 animate-pulse" />
+                    {/* Right Column: Chat Interface */}
+                    <div className="lg:col-span-8 bg-white rounded-3xl border border-slate-150 shadow-xs overflow-hidden flex flex-col h-[600px]">
+                      
+                      {/* Chat Header */}
+                      <div className="px-6 py-4 border-b border-slate-150 flex items-center justify-between bg-slate-50">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-lg bg-emerald-100 text-emerald-800 flex items-center justify-center">
+                            <Sparkle className="w-4.5 h-4.5 fill-emerald-800" />
                           </div>
-                          
-                          <div className="space-y-2">
-                            <p className="text-base font-bold text-slate-700">
-                              {ROTATING_AI_MESSAGES[loadingMessageIndex]}
-                            </p>
-                            <p className="text-xs text-gray-400 max-w-sm mx-auto leading-relaxed">
-                              Gemini is reviewing your transactions to find savings leaks and build realistic goals.
-                            </p>
-                          </div>
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    {/* Results Presentation */}
-                    {!isGeneratingTips && aiTips && (
-                      <motion.div
-                        initial={{ opacity: 0, scale: 0.98 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        className="grid grid-cols-1 lg:grid-cols-12 gap-8"
-                      >
-                        {/* Score and Overview panel */}
-                        <div className="lg:col-span-4 bg-white p-6 md:p-8 rounded-3xl border border-slate-150 shadow-xs space-y-6 flex flex-col items-center text-center justify-center">
-                          <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Your Financial Health Score</span>
-                          
-                          {/* Radial Gauge */}
-                          <div className="relative flex items-center justify-center">
-                            {/* Score Text */}
-                            <div className="absolute flex flex-col items-center">
-                              <span className="text-5xl font-black font-mono text-emerald-800 leading-none">{aiTips.score}</span>
-                              <span className="text-[10px] font-bold text-slate-400 uppercase mt-1">out of 100</span>
-                            </div>
-                            {/* Circle SVG */}
-                            <svg className="w-44 h-44 transform -rotate-90">
-                              <circle
-                                cx="88"
-                                cy="88"
-                                r="74"
-                                className="stroke-slate-100"
-                                strokeWidth="12"
-                                fill="transparent"
-                              />
-                              <circle
-                                cx="88"
-                                cy="88"
-                                r="74"
-                                className="stroke-emerald-700 transition-all duration-1000"
-                                strokeWidth="12"
-                                fill="transparent"
-                                strokeDasharray={2 * Math.PI * 74}
-                                strokeDashoffset={2 * Math.PI * 74 * (1 - aiTips.score / 100)}
-                                strokeLinecap="round"
-                              />
-                            </svg>
-                          </div>
-
-                          <div className="space-y-2">
-                            <span className="inline-flex items-center gap-1 px-3 py-1 bg-emerald-50 text-emerald-800 rounded-full text-xs font-bold">
-                              <Award className="w-3.5 h-3.5" />
-                              {aiTips.score >= 85 ? "Excellent Status" : aiTips.score >= 65 ? "Stable Balance" : "Attention Required"}
-                            </span>
-                            <p className="text-xs text-gray-400 max-w-xs mx-auto leading-relaxed">
-                              This evaluation compares your logged spending pace with your targets.
-                            </p>
+                          <div>
+                            <span className="text-sm font-bold text-slate-800 block">Consult AI Coach</span>
+                            <span className="text-[10px] text-gray-400 font-medium">Powered securely by Gemini 3.5 Flash</span>
                           </div>
                         </div>
 
-                        {/* Custom recommendations list */}
-                        <div className="lg:col-span-8 bg-[#f9fbf9] p-6 md:p-8 rounded-3xl border border-emerald-800/10 space-y-8">
-                          
-                          {/* Written Assessment */}
-                          <div className="space-y-2">
-                            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">Overview Analysis</span>
-                            <p className="text-base font-semibold text-slate-800 leading-relaxed italic">
-                              "{aiTips.assessment}"
-                            </p>
-                          </div>
-
-                          {/* Specific advice list */}
-                          <div className="space-y-4">
-                            <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block">Actionable Financial tips</span>
-                            
-                            <div className="grid grid-cols-1 gap-4">
-                              {aiTips.tips.map((tip, idx) => {
-                                const matchedCat = CATEGORIES.find(c => c.name === tip.category);
-                                const IconComponent = matchedCat?.icon || Sparkles;
-                                const urgencyColors = {
-                                  high: "bg-red-50 text-red-700 border-red-200",
-                                  medium: "bg-amber-50 text-amber-700 border-amber-200",
-                                  low: "bg-emerald-50 text-emerald-800 border-emerald-200"
-                                };
-
-                                return (
-                                  <div key={idx} className="bg-white p-5 rounded-2xl border border-slate-150 shadow-xs flex flex-col sm:flex-row sm:items-start gap-4">
-                                    <div 
-                                      className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white"
-                                      style={{ backgroundColor: matchedCat?.color || "#0e7e53" }}
-                                    >
-                                      <IconComponent className="w-5 h-5" />
-                                    </div>
-
-                                    <div className="flex-grow space-y-1.5">
-                                      <div className="flex flex-wrap items-center gap-2">
-                                        <h3 className="text-base font-bold text-slate-900 leading-tight">{tip.title}</h3>
-                                        {tip.category && (
-                                          <span className="text-[10px] font-bold text-gray-400 px-2 py-0.5 bg-gray-100 rounded-md">
-                                            {tip.category}
-                                          </span>
-                                        )}
-                                        <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${urgencyColors[tip.urgency] || urgencyColors.low}`}>
-                                          {tip.urgency} Urgency
-                                        </span>
-                                      </div>
-                                      <p className="text-sm text-gray-500 leading-relaxed">
-                                        {tip.advice}
-                                      </p>
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-
-                          {/* Encouragement message */}
-                          <div className="pt-4 border-t border-emerald-800/10 flex items-center gap-3">
-                            <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center text-amber-600 flex-shrink-0">
-                              <Sparkle className="w-4 h-4 fill-amber-500" />
-                            </div>
-                            <span className="text-xs font-bold text-emerald-950/80 leading-relaxed font-display">
-                              {aiTips.encouragement}
-                            </span>
-                          </div>
-
-                        </div>
-                      </motion.div>
-                    )}
-
-                    {/* Pre-Generated Empty State Screen */}
-                    {!isGeneratingTips && !aiTips && (
-                      <div className="bg-white p-12 text-center rounded-3xl border border-slate-150 shadow-xs flex flex-col items-center justify-center space-y-6">
-                        <div className="w-16 h-16 rounded-2xl bg-emerald-50 text-emerald-700 flex items-center justify-center shadow-sm">
-                          <Sparkles className="w-8 h-8 animate-pulse" />
-                        </div>
-                        <div className="space-y-2 max-w-md">
-                          <h3 className="text-lg font-bold text-slate-900">Your AI Money Coach is Ready</h3>
-                          <p className="text-xs text-gray-400 leading-relaxed">
-                            Set your category budgets and record your spending history, then click the "Generate Personalized Tips" button to get custom guidance powered securely by server-side Gemini AI.
-                          </p>
-                        </div>
-                        <button
-                          onClick={handleGenerateTips}
-                          className="px-6 py-3 rounded-xl bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs uppercase tracking-wider transition-colors shadow-md"
-                        >
-                          Generate AI Recommendations
-                        </button>
+                        {/* Status bar */}
+                        <span className="text-[10px] font-mono text-gray-400">
+                          {chatHistory.length} messages
+                        </span>
                       </div>
-                    )}
 
+                      {/* Chat Thread */}
+                      <div className="flex-grow p-6 overflow-y-auto space-y-4" id="chat-thread-container">
+                        {chatHistory.map((msg) => {
+                          const isUser = msg.role === "user";
+                          return (
+                            <div
+                              key={msg.id}
+                              className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-3`}
+                            >
+                              {!isUser && (
+                                <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0 border border-emerald-100 shadow-xs">
+                                  <Sparkles className="w-4 h-4 fill-emerald-700" />
+                                </div>
+                              )}
+
+                              <div className={`max-w-[80%] flex flex-col ${isUser ? "items-end" : "items-start"}`}>
+                                <div
+                                  className={`p-4 rounded-2xl text-sm leading-relaxed ${
+                                    isUser
+                                      ? "bg-emerald-750 text-white rounded-tr-none shadow-xs font-sans"
+                                      : "bg-slate-100/80 text-slate-800 rounded-tl-none border border-slate-200/50 font-sans"
+                                  }`}
+                                  style={isUser ? { backgroundColor: "#0e7e53" } : {}}
+                                >
+                                  {/* Render message formatting nicely */}
+                                  <div className="whitespace-pre-line">
+                                    {msg.text}
+                                  </div>
+                                </div>
+                                <span className="text-[9px] font-medium text-gray-400 mt-1 px-1">
+                                  {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+
+                              {isUser && (
+                                <div className="w-8 h-8 rounded-full bg-slate-100 text-slate-700 flex items-center justify-center flex-shrink-0 border border-slate-200 shadow-xs font-bold text-xs uppercase">
+                                  ME
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+
+                        {/* AI Typing Indicator */}
+                        {isSendingChat && (
+                          <div className="flex justify-start items-start gap-3">
+                            <div className="w-8 h-8 rounded-full bg-emerald-50 text-emerald-700 flex items-center justify-center flex-shrink-0 border border-emerald-100 shadow-xs animate-pulse">
+                              <Sparkles className="w-4 h-4" />
+                            </div>
+                            <div className="bg-slate-100/80 border border-slate-200/50 p-4 rounded-2xl rounded-tl-none flex items-center gap-1.5 max-w-[120px]">
+                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce" style={{ animationDelay: "0ms" }}></span>
+                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce" style={{ animationDelay: "150ms" }}></span>
+                              <span className="w-2 h-2 rounded-full bg-emerald-600 animate-bounce" style={{ animationDelay: "300ms" }}></span>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* Chat Error presentation */}
+                        {chatError && (
+                          <div className="p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+                            <div className="text-xs text-red-800 leading-relaxed font-medium">
+                              {chatError}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Chat Input Area */}
+                      <form
+                        onSubmit={handleSendChatMessage}
+                        className="p-4 border-t border-slate-150 bg-slate-50/50 flex gap-2.5 items-center"
+                      >
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          placeholder="Ask the AI Coach... (e.g., Should I buy a smart TV?)"
+                          disabled={isSendingChat}
+                          className="flex-grow bg-white border border-slate-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all disabled:opacity-60"
+                        />
+                        <button
+                          type="submit"
+                          disabled={!chatInput.trim() || isSendingChat}
+                          className="p-3 bg-emerald-700 hover:bg-emerald-800 disabled:bg-slate-200 text-white disabled:text-gray-400 rounded-xl transition-all shadow-md active:scale-95 flex-shrink-0 flex items-center justify-center cursor-pointer"
+                          style={chatInput.trim() && !isSendingChat ? { backgroundColor: "#0e7e53" } : {}}
+                        >
+                          <Send className="w-4.5 h-4.5" />
+                        </button>
+                      </form>
+
+                    </div>
                   </motion.div>
                 )}
+
+
 
               </div>
 
@@ -1697,7 +1759,7 @@ export default function App() {
             <button onClick={() => { setStarted(true); setActiveTab("overview"); }} className="hover:text-emerald-800 transition-colors">Workspace</button>
             <button onClick={() => { setStarted(true); setActiveTab("budgeting"); }} className="hover:text-emerald-800 transition-colors">Budgets</button>
             <button onClick={() => { setStarted(true); setActiveTab("transactions"); }} className="hover:text-emerald-800 transition-colors">Transactions</button>
-            <button onClick={() => { setStarted(true); setActiveTab("ai-coach"); }} className="hover:text-emerald-800 transition-colors">AI Advisor</button>
+            <button onClick={() => { setStarted(true); setActiveTab("ai-coach"); }} className="hover:text-emerald-800 transition-colors">AI Coach</button>
           </div>
 
           <span className="text-xs text-gray-400">
