@@ -762,7 +762,7 @@ export default function App() {
                     </div>
                     <h3 className="text-lg font-bold text-slate-900 mb-2">3. Receive personalized money tips</h3>
                     <p className="text-sm text-gray-500 leading-relaxed">
-                      Get real-time, custom money-saving ideas tailored to your budget and actual transaction history, powered securely by server-side Gemini AI.
+                      Get real-time, custom money-saving ideas tailored to your budget and actual transaction history, powered securely by server-side OpenAI GPT & Gemini AI.
                     </p>
                   </div>
 
@@ -1128,7 +1128,7 @@ export default function App() {
                       <div className="space-y-2 max-w-xl">
                         <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-500/20 text-amber-300 rounded-full text-[10px] font-bold tracking-wider uppercase border border-amber-500/20">
                           <Sparkle className="w-3 h-3 fill-amber-300 text-amber-300" />
-                          Gemini AI Financial Coach Chat
+                          OpenAI GPT & Gemini Coach Chat
                         </span>
                         <h2 className="text-2xl font-black tracking-tight font-display">Need helper strategies to beat overspending?</h2>
                         <p className="text-sm text-emerald-100/90 leading-relaxed font-sans">
@@ -1563,7 +1563,7 @@ export default function App() {
                             <Sparkles className="w-5.5 h-5.5 fill-[#093c26]" />
                           </div>
                           <div>
-                            <h3 className="font-bold text-base font-display text-white">AI Coach Gemini</h3>
+                            <h3 className="font-bold text-base font-display text-white">AI Money Coach</h3>
                             <span className="text-[10px] text-amber-300 font-bold tracking-wider uppercase">Personal Financial Advisor</span>
                           </div>
                         </div>
@@ -1629,7 +1629,7 @@ export default function App() {
                           </div>
                           <div>
                             <span className="text-sm font-bold text-slate-800 block">Consult AI Coach</span>
-                            <span className="text-[10px] text-gray-400 font-medium">Powered securely by Gemini 3.5 Flash</span>
+                            <span className="text-[10px] text-gray-400 font-medium">Powered securely by OpenAI GPT-4o & Gemini</span>
                           </div>
                         </div>
 

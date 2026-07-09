@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import { GoogleGenAI, Type } from "@google/genai";
+import OpenAI from "openai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -32,6 +33,22 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// Initialize OpenAI Client (lazy initialized and guarded)
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    const key = process.env.OPENAI_API_KEY;
+    if (!key) {
+      throw new Error("OPENAI_API_KEY environment variable is required");
+    }
+    openaiClient = new OpenAI({
+      apiKey: key,
+    });
+  }
+  return openaiClient;
+}
+
   // API endpoints
   app.post("/api/gemini/tips", async (req, res) => {
     try {
@@ -45,17 +62,17 @@ function getGeminiClient(): GoogleGenAI {
         });
       }
 
-      const key = process.env.GEMINI_API_KEY;
-      if (!key) {
-        console.warn("GEMINI_API_KEY environment variable not set");
+      const openaiKey = process.env.OPENAI_API_KEY;
+      const geminiKey = process.env.GEMINI_API_KEY;
+
+      if (!openaiKey && !geminiKey) {
+        console.warn("Neither OPENAI_API_KEY nor GEMINI_API_KEY environment variable is set");
         return res.status(400).json({
-          error: "Please set your GEMINI_API_KEY secret in Settings > Secrets to receive personalized AI financial tips."
+          error: "Please configure your OPENAI_API_KEY or GEMINI_API_KEY in the Secrets panel (Settings > Secrets) to receive personalized AI financial tips."
         });
       }
 
-      const ai = getGeminiClient();
-
-      // Calculate summary statistics defensively to supply high-quality context to Gemini
+      // Calculate summary statistics defensively to supply high-quality context to AI
       const totalBudget = Number(budget.overall || 0);
       const expensesList = Array.isArray(expenses) ? expenses : [];
       const totalSpent = expensesList.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
@@ -107,55 +124,80 @@ Requirements:
 
 Ensure you return a clean, valid JSON matching the requested schema. No conversational wrapper or markdown backticks outside of the JSON representation.`;
 
-      console.log("Invoking Google GenAI API...");
-      const response = await ai.models.generateContent({
-        model: "gemini-3.1-flash-lite", // Much faster latency to prevent Vercel 10s timeout
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              score: {
-                type: Type.INTEGER,
-                description: "The financial health score (0 to 100)"
-              },
-              assessment: {
-                type: Type.STRING,
-                description: "Honest and supportive assessment of their current spending habits."
-              },
-              tips: {
-                type: Type.ARRAY,
-                description: "Array of exactly 3 personalized actionable tips.",
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    title: { type: Type.STRING, description: "A catchy, short tip title." },
-                    advice: { type: Type.STRING, description: "Specific advice explaining what the user should do and why. Be very brief (max 2 sentences)." },
-                    category: { type: Type.STRING, description: "The specific category this tip targets, if applicable." },
-                    urgency: { type: Type.STRING, description: "Urgency level of this tip: high, medium, or low." }
-                  },
-                  required: ["title", "advice", "urgency"]
+      let responseText = "";
+
+      if (openaiKey) {
+        console.log("Invoking OpenAI API for tips generation...");
+        const openai = getOpenAIClient();
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content: "You are a professional financial advisor. You must analyze the user's spending profile and return a valid JSON object matching the requested format. Do not wrap the JSON object in markdown backticks or any other conversational text."
+            },
+            {
+              role: "user",
+              content: prompt
+            }
+          ],
+          response_format: { type: "json_object" }
+        });
+        responseText = response.choices[0].message.content || "";
+        console.log("OpenAI API call returned successfully.");
+      } else {
+        console.log("Invoking Google GenAI API...");
+        const ai = getGeminiClient();
+        const response = await ai.models.generateContent({
+          model: "gemini-3.1-flash-lite", // Much faster latency to prevent Vercel 10s timeout
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: {
+              type: Type.OBJECT,
+              properties: {
+                score: {
+                  type: Type.INTEGER,
+                  description: "The financial health score (0 to 100)"
+                },
+                assessment: {
+                  type: Type.STRING,
+                  description: "Honest and supportive assessment of their current spending habits."
+                },
+                tips: {
+                  type: Type.ARRAY,
+                  description: "Array of exactly 3 personalized actionable tips.",
+                  items: {
+                    type: Type.OBJECT,
+                    properties: {
+                      title: { type: Type.STRING, description: "A catchy, short tip title." },
+                      advice: { type: Type.STRING, description: "Specific advice explaining what the user should do and why. Be very brief (max 2 sentences)." },
+                      category: { type: Type.STRING, description: "The specific category this tip targets, if applicable." },
+                      urgency: { type: Type.STRING, description: "Urgency level of this tip: high, medium, or low." }
+                    },
+                    required: ["title", "advice", "urgency"]
+                  }
+                },
+                encouragement: {
+                  type: Type.STRING,
+                  description: "A short, encouraging closing sentence."
                 }
               },
-              encouragement: {
-                type: Type.STRING,
-                description: "A short, encouraging closing sentence."
-              }
-            },
-            required: ["score", "assessment", "tips", "encouragement"]
+              required: ["score", "assessment", "tips", "encouragement"]
+            }
           }
-        }
-      });
+        });
 
-      console.log("Google GenAI API call returned successfully.");
-      const responseText = response.text;
+        console.log("Google GenAI API call returned successfully.");
+        responseText = response.text || "";
+      }
+
       if (!responseText) {
-        throw new Error("No response text received from Gemini API");
+        throw new Error("No response text received from the AI model.");
       }
 
       const parsedData = JSON.parse(responseText.trim());
-      console.log("Successfully parsed Gemini response:", JSON.stringify(parsedData));
+      console.log("Successfully parsed AI response:", JSON.stringify(parsedData));
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating budget tips:", error);
@@ -172,14 +214,14 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
         return res.status(400).json({ error: "Message is required." });
       }
 
-      const key = process.env.GEMINI_API_KEY;
-      if (!key) {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      const geminiKey = process.env.GEMINI_API_KEY;
+
+      if (!openaiKey && !geminiKey) {
         return res.status(400).json({
-          error: "Please set your GEMINI_API_KEY secret in Settings > Secrets to use the AI Coach chat."
+          error: "Please set your OPENAI_API_KEY or GEMINI_API_KEY secret in Settings > Secrets to use the AI Coach chat."
         });
       }
-
-      const ai = getGeminiClient();
 
       let contextStr = "";
       if (budget && expenses) {
@@ -210,29 +252,58 @@ Be specific and practical in your advice. Feel free to reference the user's curr
 When asked about purchasing decisions (e.g., "Should I buy a new phone?"), help them weigh the pros and cons based on their remaining budget, and propose alternative strategies (like saving over 3 months, or delaying the purchase).
 Keep responses friendly, helpful, relatively concise (2-4 sentences per point, avoiding massive paragraphs), and well-structured with formatting or bullet points where appropriate.${contextStr}`;
 
-      const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
-        role: h.role === "user" ? "user" : "model",
-        parts: Array.isArray(h.parts) ? h.parts.map((p: any) => ({ text: p.text || "" })) : [{ text: String(h) }]
-      })) : [];
+      let responseText = "";
 
-      const contents = [
-        ...formattedHistory,
-        { role: "user", parts: [{ text: message }] }
-      ];
+      if (openaiKey) {
+        console.log("Invoking OpenAI API for chat...");
+        const openai = getOpenAIClient();
 
-      console.log(`Invoking Google GenAI API for chat. Message count in session: ${contents.length}`);
-      const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents,
-        config: {
-          systemInstruction,
-        }
-      });
+        const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
+          role: h.role === "user" ? "user" as const : "assistant" as const,
+          content: typeof h.text === "string" ? h.text : (Array.isArray(h.parts) ? h.parts.map((p: any) => p.text).join("") : String(h))
+        })) : [];
 
-      console.log("Google GenAI chat response generated.");
-      const responseText = response.text;
+        const messages = [
+          { role: "system" as const, content: systemInstruction },
+          ...formattedHistory,
+          { role: "user" as const, content: message }
+        ];
+
+        const response = await openai.chat.completions.create({
+          model: "gpt-4o-mini",
+          messages
+        });
+
+        responseText = response.choices[0].message.content || "";
+        console.log("OpenAI chat response generated.");
+      } else {
+        console.log("Invoking Google GenAI API for chat...");
+        const ai = getGeminiClient();
+
+        const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
+          role: h.role === "user" ? "user" : "model",
+          parts: Array.isArray(h.parts) ? h.parts.map((p: any) => ({ text: p.text || "" })) : [{ text: String(h) }]
+        })) : [];
+
+        const contents = [
+          ...formattedHistory,
+          { role: "user", parts: [{ text: message }] }
+        ];
+
+        const response = await ai.models.generateContent({
+          model: "gemini-3.5-flash",
+          contents,
+          config: {
+            systemInstruction,
+          }
+        });
+
+        responseText = response.text || "";
+        console.log("Google GenAI chat response generated.");
+      }
+
       if (!responseText) {
-        throw new Error("No response text received from Gemini API");
+        throw new Error("No response text received from AI Coach.");
       }
 
       res.json({ text: responseText });
