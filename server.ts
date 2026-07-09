@@ -1,6 +1,6 @@
 import express from "express";
 import path from "path";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
 
 dotenv.config();
@@ -35,10 +35,19 @@ function getGeminiClient(): GoogleGenAI {
   // API endpoints
   app.post("/api/gemini/tips", async (req, res) => {
     try {
+      console.log("POST /api/gemini/tips called");
       const { budget, expenses } = req.body;
+
+      if (!budget || !expenses) {
+        console.warn("Invalid payload: budget or expenses missing");
+        return res.status(400).json({
+          error: "Invalid request. Please ensure you have configured your budget and have at least one expense record."
+        });
+      }
 
       const key = process.env.GEMINI_API_KEY;
       if (!key) {
+        console.warn("GEMINI_API_KEY environment variable not set");
         return res.status(400).json({
           error: "Please set your GEMINI_API_KEY secret in Settings > Secrets to receive personalized AI financial tips."
         });
@@ -46,36 +55,44 @@ function getGeminiClient(): GoogleGenAI {
 
       const ai = getGeminiClient();
 
-      // Calculate summary statistics to supply high-quality context to Gemini
-      const totalBudget = budget.overall;
-      const totalSpent = expenses.reduce((sum: number, e: any) => sum + Number(e.amount), 0);
+      // Calculate summary statistics defensively to supply high-quality context to Gemini
+      const totalBudget = Number(budget.overall || 0);
+      const expensesList = Array.isArray(expenses) ? expenses : [];
+      const totalSpent = expensesList.reduce((sum: number, e: any) => sum + Number(e?.amount || 0), 0);
       
       const categorySpendMap: Record<string, number> = {};
-      expenses.forEach((e: any) => {
-        categorySpendMap[e.category] = (categorySpendMap[e.category] || 0) + Number(e.amount);
+      expensesList.forEach((e: any) => {
+        if (e && e.category) {
+          categorySpendMap[e.category] = (categorySpendMap[e.category] || 0) + Number(e.amount || 0);
+        }
       });
 
       const categoryBudgetsMap: Record<string, number> = {};
-      budget.categories.forEach((c: any) => {
-        categoryBudgetsMap[c.category] = Number(c.amount);
+      const budgetCategories = Array.isArray(budget.categories) ? budget.categories : [];
+      budgetCategories.forEach((c: any) => {
+        if (c && c.category) {
+          categoryBudgetsMap[c.category] = Number(c.amount || 0);
+        }
       });
 
       const dataPayload = {
         totalBudget,
         totalSpent,
-        categoryBudgets: budget.categories,
+        categoryBudgets: budgetCategories,
         actualSpending: Object.keys(categorySpendMap).map(cat => ({
           category: cat,
           spent: categorySpendMap[cat],
           budget: categoryBudgetsMap[cat] || 0
         })),
-        recentExpenses: expenses.slice(-12).map((e: any) => ({
-          amount: e.amount,
-          category: e.category,
-          date: e.date,
-          description: e.description
+        recentExpenses: expensesList.slice(-12).map((e: any) => ({
+          amount: Number(e?.amount || 0),
+          category: e?.category || "Other",
+          date: e?.date || "",
+          description: e?.description || ""
         }))
       };
+
+      console.log("Analyzing spend profile payload:", JSON.stringify(dataPayload));
 
       const prompt = `Analyze the user's monthly budget and spending profile to provide highly personalized, realistic, and actionable money-saving tips and financial advice.
 User's Financial Profile:
@@ -83,45 +100,46 @@ ${JSON.stringify(dataPayload, null, 2)}
 
 Requirements:
 1. Provide a financial health score (0-100) based on how well they are sticking to their budget (higher is better, lower if they are significantly over or have exceeded multiple category caps).
-2. Write a clear, encouraging but honest overall assessment (2-3 sentences) of their current spending.
-3. Provide exactly 3 or 4 custom tips. Each tip must target specific categories (especially where they are overspending or close to the limit) or general behavioral advice.
+2. Write a clear, encouraging but honest overall assessment (exactly 2 sentences) of their current spending.
+3. Provide exactly 3 custom tips. Be extremely concise in your advice (maximum 2 sentences per tip) to keep response fast. Each tip must target specific categories (especially where they are overspending or close to the limit) or general behavioral advice.
 4. Set the urgency for each tip ("high", "medium", or "low") based on the budget overage.
 5. Provide a short, motivating, positive encouraging closing sentence.
 
 Ensure you return a clean, valid JSON matching the requested schema. No conversational wrapper or markdown backticks outside of the JSON representation.`;
 
+      console.log("Invoking Google GenAI API...");
       const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.1-flash-lite", // Much faster latency to prevent Vercel 10s timeout
         contents: prompt,
         config: {
           responseMimeType: "application/json",
           responseSchema: {
-            type: "OBJECT",
+            type: Type.OBJECT,
             properties: {
               score: {
-                type: "INTEGER",
+                type: Type.INTEGER,
                 description: "The financial health score (0 to 100)"
               },
               assessment: {
-                type: "STRING",
+                type: Type.STRING,
                 description: "Honest and supportive assessment of their current spending habits."
               },
               tips: {
-                type: "ARRAY",
-                description: "Array of exactly 3 to 4 personalized actionable tips.",
+                type: Type.ARRAY,
+                description: "Array of exactly 3 personalized actionable tips.",
                 items: {
-                  type: "OBJECT",
+                  type: Type.OBJECT,
                   properties: {
-                    title: { type: "STRING", description: "A catchy, short tip title." },
-                    advice: { type: "STRING", description: "Specific advice explaining what the user should do and why." },
-                    category: { type: "STRING", description: "The specific category this tip targets, if applicable (e.g., Food & Dining)." },
-                    urgency: { type: "STRING", description: "Urgency level of this tip: high, medium, or low." }
+                    title: { type: Type.STRING, description: "A catchy, short tip title." },
+                    advice: { type: Type.STRING, description: "Specific advice explaining what the user should do and why. Be very brief (max 2 sentences)." },
+                    category: { type: Type.STRING, description: "The specific category this tip targets, if applicable." },
+                    urgency: { type: Type.STRING, description: "Urgency level of this tip: high, medium, or low." }
                   },
                   required: ["title", "advice", "urgency"]
                 }
               },
               encouragement: {
-                type: "STRING",
+                type: Type.STRING,
                 description: "A short, encouraging closing sentence."
               }
             },
@@ -130,12 +148,14 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
         }
       });
 
+      console.log("Google GenAI API call returned successfully.");
       const responseText = response.text;
       if (!responseText) {
         throw new Error("No response text received from Gemini API");
       }
 
       const parsedData = JSON.parse(responseText.trim());
+      console.log("Successfully parsed Gemini response:", JSON.stringify(parsedData));
       res.json(parsedData);
     } catch (error: any) {
       console.error("Error generating budget tips:", error);
