@@ -33,6 +33,18 @@ function getGeminiClient(): GoogleGenAI {
   return aiClient;
 }
 
+// Format OpenAI error into a user-friendly and actionable message
+function formatOpenAIError(error: any): string {
+  const errMsg = error.message || String(error);
+  if (errMsg.includes("quota") || errMsg.includes("429") || errMsg.includes("billing") || errMsg.includes("limit")) {
+    return "Your OpenAI API Key has exceeded its current quota or billing limit (Rate Limit Error 429). Please check your billing details and add credits to your OpenAI account at https://platform.openai.com/account/billing.";
+  }
+  if (errMsg.includes("invalid_api_key") || errMsg.includes("Incorrect API key") || errMsg.includes("invalid")) {
+    return "The OpenAI API Key provided is incorrect or invalid. Please check your key in Settings > Secrets and try again.";
+  }
+  return `OpenAI API Error: ${errMsg}`;
+}
+
 // Initialize OpenAI Client (lazy initialized and guarded)
 let openaiClient: OpenAI | null = null;
 
@@ -127,26 +139,36 @@ Ensure you return a clean, valid JSON matching the requested schema. No conversa
       let responseText = "";
 
       if (openaiKey) {
-        console.log("Invoking OpenAI API for tips generation...");
-        const openai = getOpenAIClient();
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "system",
-              content: "You are a professional financial advisor. You must analyze the user's spending profile and return a valid JSON object matching the requested format. Do not wrap the JSON object in markdown backticks or any other conversational text."
-            },
-            {
-              role: "user",
-              content: prompt
-            }
-          ],
-          response_format: { type: "json_object" }
-        });
-        responseText = response.choices[0].message.content || "";
-        console.log("OpenAI API call returned successfully.");
-      } else {
-        console.log("Invoking Google GenAI API...");
+        try {
+          console.log("Invoking OpenAI API for tips generation...");
+          const openai = getOpenAIClient();
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages: [
+              {
+                role: "system",
+                content: "You are a professional financial advisor. You must analyze the user's spending profile and return a valid JSON object matching the requested format. Do not wrap the JSON object in markdown backticks or any other conversational text."
+              },
+              {
+                role: "user",
+                content: prompt
+              }
+            ],
+            response_format: { type: "json_object" }
+          });
+          responseText = response.choices[0].message.content || "";
+          console.log("OpenAI API call returned successfully.");
+        } catch (openaiErr: any) {
+          console.error("OpenAI tips generation failed. Gracefully falling back to Gemini API.", openaiErr);
+          if (!geminiKey) {
+            const friendlyMsg = formatOpenAIError(openaiErr);
+            throw new Error(friendlyMsg);
+          }
+        }
+      }
+
+      if (!responseText) {
+        console.log("Invoking Google GenAI API as primary or fallback...");
         const ai = getGeminiClient();
         const response = await ai.models.generateContent({
           model: "gemini-3.1-flash-lite", // Much faster latency to prevent Vercel 10s timeout
@@ -255,29 +277,39 @@ Keep responses friendly, helpful, relatively concise (2-4 sentences per point, a
       let responseText = "";
 
       if (openaiKey) {
-        console.log("Invoking OpenAI API for chat...");
-        const openai = getOpenAIClient();
+        try {
+          console.log("Invoking OpenAI API for chat...");
+          const openai = getOpenAIClient();
 
-        const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
-          role: h.role === "user" ? "user" as const : "assistant" as const,
-          content: typeof h.text === "string" ? h.text : (Array.isArray(h.parts) ? h.parts.map((p: any) => p.text).join("") : String(h))
-        })) : [];
+          const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
+            role: h.role === "user" ? "user" as const : "assistant" as const,
+            content: typeof h.text === "string" ? h.text : (Array.isArray(h.parts) ? h.parts.map((p: any) => p.text).join("") : String(h))
+          })) : [];
 
-        const messages = [
-          { role: "system" as const, content: systemInstruction },
-          ...formattedHistory,
-          { role: "user" as const, content: message }
-        ];
+          const messages = [
+            { role: "system" as const, content: systemInstruction },
+            ...formattedHistory,
+            { role: "user" as const, content: message }
+          ];
 
-        const response = await openai.chat.completions.create({
-          model: "gpt-4o-mini",
-          messages
-        });
+          const response = await openai.chat.completions.create({
+            model: "gpt-4o-mini",
+            messages
+          });
 
-        responseText = response.choices[0].message.content || "";
-        console.log("OpenAI chat response generated.");
-      } else {
-        console.log("Invoking Google GenAI API for chat...");
+          responseText = response.choices[0].message.content || "";
+          console.log("OpenAI chat response generated.");
+        } catch (openaiErr: any) {
+          console.error("OpenAI chat failed. Gracefully falling back to Gemini API.", openaiErr);
+          if (!geminiKey) {
+            const friendlyMsg = formatOpenAIError(openaiErr);
+            throw new Error(friendlyMsg);
+          }
+        }
+      }
+
+      if (!responseText) {
+        console.log("Invoking Google GenAI API for chat as primary or fallback...");
         const ai = getGeminiClient();
 
         const formattedHistory = Array.isArray(history) ? history.map((h: any) => ({
